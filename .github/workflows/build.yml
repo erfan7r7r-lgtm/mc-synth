@@ -1,0 +1,45 @@
+name: Build VST3
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Check the files we need
+        shell: pwsh
+        run: |
+          foreach ($f in @("CMakeLists.txt","Source\MCSynth.cpp")) {
+            if (Test-Path $f) { Write-Host "OK   $f" } else { Write-Host "MISSING  $f"; exit 1 }
+          }
+
+      - name: Configure
+        run: cmake -B build -G "Visual Studio 17 2022" -A x64
+
+      - name: Build
+        run: cmake --build build --config Release
+
+      - name: Collect the plugin
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path out | Out-Null
+          $vs = Get-ChildItem build -Recurse -Filter "*.vst3"
+          if (-not $vs) { Write-Host "no vst3 produced"; exit 1 }
+          foreach ($v in $vs) { Copy-Item $v.FullName -Destination out -Recurse -Force }
+          Get-ChildItem build -Recurse -Filter "*.exe" |
+            Where-Object { $_.FullName -notmatch "CMake|MSBuild" } |
+            ForEach-Object { Copy-Item $_.FullName -Destination out -Force }
+
+      - name: Upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: MC-Synth-VST3
+          path: out/**
+          if-no-files-found: error
